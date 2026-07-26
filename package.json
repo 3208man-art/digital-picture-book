@@ -1,6 +1,6 @@
 {
   "name": "digital-picture-book",
   "private": true,
-  "version": "1.0.0",
-  "description": "動くデジタル絵本「ほしの たび」"
+  "version": "1.1.0",
+  "description": "AIデジタル絵本ラボ — 動くデジタル絵本＆ミニゲーム"
 }
