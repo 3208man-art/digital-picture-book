@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ほしの たび — 動くデジタル絵本</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Yomogi&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true">
+    <span class="cloud cloud-a"></span>
+    <span class="cloud cloud-b"></span>
+    <span class="cloud cloud-c"></span>
+  </div>
+
+  <main class="book-app">
+    <header class="book-header">
+      <p class="brand">ほしの たび</p>
+      <button type="button" class="audio-btn" id="audioBtn" aria-label="音声を再生する">
+        <svg class="audio-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+        </svg>
+        <span>よむ</span>
+      </button>
+    </header>
+
+    <section class="book-stage" id="bookStage" aria-label="絵本のページ">
+      <button type="button" class="nav-btn nav-prev" id="prevBtn" aria-label="前のページ">
+        <span aria-hidden="true">‹</span>
+      </button>
+
+      <article class="page-frame" id="pageFrame">
+        <div class="page" id="page">
+          <div class="page-image" id="pageImage" role="img" aria-label="挿絵"></div>
+          <div class="page-text">
+            <p class="page-number" id="pageNumber">1 / 3</p>
+            <h2 class="page-title" id="pageTitle"></h2>
+            <p class="page-body" id="pageBody"></p>
+          </div>
+        </div>
+      </article>
+
+      <button type="button" class="nav-btn nav-next" id="nextBtn" aria-label="次のページ">
+        <span aria-hidden="true">›</span>
+      </button>
+    </section>
+
+    <nav class="dots" id="dots" aria-label="ページ位置"></nav>
+    <p class="hint">左右の矢印、または画面をタップしてページをめくれます</p>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="./js/book.js"></script>
+</body>
+</html>
