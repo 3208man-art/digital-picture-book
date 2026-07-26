@@ -4,9 +4,10 @@
   "buildCommand": "",
   "outputDirectory": ".",
   "cleanUrls": true,
-  "trailingSlash": false,
+  "trailingSlash": true,
   "rewrites": [
     { "source": "/", "destination": "/index.html" },
-    { "source": "/book", "destination": "/book/index.html" }
+    { "source": "/book", "destination": "/book/" },
+    { "source": "/book/", "destination": "/book/index.html" }
   ]
 }
