@@ -181,81 +181,161 @@ function prevPage() {
 }
 
 /* --- 音声読み上げ（Web Speech API） --- */
-const PREFERRED_VOICE_NAMES = [
-  "Google 日本語",
-  "Google Japanese",
-  "Microsoft Nanami",
-  "Microsoft Haruka",
-  "Microsoft Ayumi",
-  "Kyoko",
-  "Otoya",
-  "Sayaka",
-  "Hattori"
-];
+/**
+ * gender を "male" に変えるだけで男性ボイス優先に切り替え可能
+ */
+const NARRATION_CONFIG = {
+  gender: "female", // "female" | "male"
+  lang: "ja-JP",
+  rate: 0.85,
+  pitch: 1.05,
+  volume: 1,
+  pauseMs: {
+    period: 320, // 。！？
+    comma: 160, // 、
+    newline: 220,
+    default: 140
+  },
+  voicesByGender: {
+    female: [
+      "Google 日本語",
+      "Google Japanese",
+      "Microsoft Nanami",
+      "Microsoft Nanami Online",
+      "Kyoko",
+      "Microsoft Haruka",
+      "Microsoft Ayumi",
+      "Sayaka"
+    ],
+    male: [
+      "Microsoft Keita",
+      "Microsoft Keita Online",
+      "Otoya",
+      "Ichiro",
+      "Microsoft Ichiro",
+      "Hattori"
+    ]
+  },
+  // 標準語以外っぽい声名・方言系を避ける
+  avoidNameHints: ["osaka", "kansai", "kyoto", "dialect"]
+};
 
-let cachedJaVoice = null;
+let cachedVoice = null;
+let cachedVoiceGender = null;
 let speakingQueue = [];
 
-function scoreJapaneseVoice(voice) {
+function getVoicePreferences(gender = NARRATION_CONFIG.gender) {
+  return NARRATION_CONFIG.voicesByGender[gender] || NARRATION_CONFIG.voicesByGender.female;
+}
+
+function detectVoiceGenderHint(voiceName) {
+  const name = voiceName || "";
+  if (/nanami|haruka|ayumi|kyoko|sayaka|female|woman|girl/i.test(name)) return "female";
+  if (/otoya|keita|ichiro|hattori|male|man|boy/i.test(name)) return "male";
+  return null;
+}
+
+function scoreVoiceForGender(voice, gender) {
   const name = voice.name || "";
   const lang = (voice.lang || "").toLowerCase();
   if (!lang.startsWith("ja")) return -1;
 
-  let score = 10;
-  const preferredIndex = PREFERRED_VOICE_NAMES.findIndex(
-    (n) => name === n || name.includes(n)
-  );
-  if (preferredIndex !== -1) score += 100 - preferredIndex;
+  if (NARRATION_CONFIG.avoidNameHints.some((hint) => name.toLowerCase().includes(hint))) {
+    return -1;
+  }
 
-  if (/google/i.test(name)) score += 40;
-  if (/nanami|haruka|ayumi|kyoko|otoya|sayaka/i.test(name)) score += 30;
-  if (voice.localService === false) score += 15; // クラウド系は自然になりやすい
-  if (lang === "ja-jp") score += 5;
+  let score = 10;
+  const preferred = getVoicePreferences(gender);
+  const preferredIndex = preferred.findIndex((n) => name === n || name.includes(n));
+  if (preferredIndex !== -1) score += 120 - preferredIndex;
+
+  const hint = detectVoiceGenderHint(name);
+  if (hint === gender) score += 50;
+  if (hint && hint !== gender) score -= 80;
+
+  // 標準語の自然な抑揚になりやすいエンジンを優先
+  if (/google/i.test(name)) score += 45;
+  if (/nanami|kyoko/i.test(name)) score += 35;
+  if (voice.localService === false) score += 12;
+  if (lang === "ja-jp") score += 8;
+
+  // 「日本語」とだけ名乗る標準ボイスも加点
+  if (/日本語|japanese/i.test(name) && !hint) score += 20;
+
   return score;
 }
 
-function pickJapaneseVoice() {
-  if (cachedJaVoice) return cachedJaVoice;
+function pickNarrationVoice(gender = NARRATION_CONFIG.gender) {
+  if (cachedVoice && cachedVoiceGender === gender) return cachedVoice;
   if (!("speechSynthesis" in window)) return null;
 
   const voices = window.speechSynthesis.getVoices();
   if (!voices.length) return null;
 
   const ranked = voices
-    .map((voice) => ({ voice, score: scoreJapaneseVoice(voice) }))
+    .map((voice) => ({ voice, score: scoreVoiceForGender(voice, gender) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  cachedJaVoice = ranked.length ? ranked[0].voice : null;
-  return cachedJaVoice;
+  cachedVoice = ranked.length ? ranked[0].voice : null;
+  cachedVoiceGender = gender;
+  return cachedVoice;
 }
 
 function warmUpVoices() {
   if (!("speechSynthesis" in window)) return;
   const ready = () => {
-    cachedJaVoice = null;
-    pickJapaneseVoice();
+    cachedVoice = null;
+    cachedVoiceGender = null;
+    pickNarrationVoice(NARRATION_CONFIG.gender);
   };
   ready();
   window.speechSynthesis.onvoiceschanged = ready;
 }
 
-function prepareNarrationText(page) {
+/**
+ * タイトル・本文を句読点・改行単位に分割し、間の種類を付与する
+ */
+function prepareNarrationChunks(page) {
   const title = page.title.trim();
-  const body = page.text
+  const lines = page.text
     .replace(/\r\n/g, "\n")
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
-    .join(" ");
-
-  // 句読点・感嘆・疑問のあとで区切り、読み聞かせの「間」を作る
-  const combined = `${title}。${body}`;
-  return combined
-    .replace(/\s+/g, " ")
-    .split(/(?<=[。．！？!?…])\s*/)
-    .map((chunk) => chunk.trim())
     .filter(Boolean);
+
+  const rawParts = [title, ...lines];
+  const chunks = [];
+
+  rawParts.forEach((part, partIndex) => {
+    const pieces = part
+      .split(/(?<=[。．、，！？!?…])/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    pieces.forEach((text, i) => {
+      let pauseType = "default";
+      if (/[。．！？!?…]$/.test(text)) pauseType = "period";
+      else if (/[、，]$/.test(text)) pauseType = "comma";
+
+      // 行の切れ目は改行ポーズ
+      if (i === pieces.length - 1 && partIndex < rawParts.length - 1) {
+        pauseType = pauseType === "period" ? "period" : "newline";
+      }
+
+      chunks.push({ text, pauseType });
+    });
+  });
+
+  // タイトルのあとに句点がない場合は区切りを補強
+  if (chunks.length && !/[。．！？!?]$/.test(chunks[0].text)) {
+    chunks[0] = {
+      text: `${chunks[0].text}。`,
+      pauseType: "period"
+    };
+  }
+
+  return chunks;
 }
 
 function stopNarration() {
@@ -267,7 +347,8 @@ function stopNarration() {
 }
 
 function speakChunks(chunks) {
-  const voice = pickJapaneseVoice();
+  const gender = NARRATION_CONFIG.gender;
+  const voice = pickNarrationVoice(gender);
   speakingQueue = chunks.slice();
 
   const speakNext = () => {
@@ -276,17 +357,19 @@ function speakChunks(chunks) {
       return;
     }
 
-    const text = speakingQueue.shift();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "ja-JP";
-    utter.rate = 0.88;
-    utter.pitch = 1.08;
-    utter.volume = 1;
+    const item = speakingQueue.shift();
+    const utter = new SpeechSynthesisUtterance(item.text);
+    utter.lang = NARRATION_CONFIG.lang;
+    utter.rate = NARRATION_CONFIG.rate;
+    utter.pitch = NARRATION_CONFIG.pitch;
+    utter.volume = NARRATION_CONFIG.volume;
     if (voice) utter.voice = voice;
 
-    // 文と文のあいだに短い間を入れる
+    const pauseMs =
+      NARRATION_CONFIG.pauseMs[item.pauseType] || NARRATION_CONFIG.pauseMs.default;
+
     utter.onend = () => {
-      window.setTimeout(speakNext, text.endsWith("。") || text.endsWith("．") ? 280 : 180);
+      window.setTimeout(speakNext, pauseMs);
     };
     utter.onerror = () => {
       audioBtn.classList.remove("is-playing");
@@ -305,25 +388,24 @@ function playAudioDummy() {
     return;
   }
 
-  // 再生中にもう一度押したら停止
   if (audioBtn.classList.contains("is-playing")) {
     stopNarration();
     showToast("読み上げを止めました");
     return;
   }
 
-  pickJapaneseVoice();
+  pickNarrationVoice(NARRATION_CONFIG.gender);
   window.speechSynthesis.cancel();
 
-  const chunks = prepareNarrationText(pages[currentIndex]);
+  const chunks = prepareNarrationChunks(pages[currentIndex]);
   if (!chunks.length) return;
 
   audioBtn.classList.add("is-playing");
-  const voice = pickJapaneseVoice();
-  const voiceLabel = voice ? voice.name : "標準の日本語音声";
+  const voice = pickNarrationVoice(NARRATION_CONFIG.gender);
+  const genderLabel = NARRATION_CONFIG.gender === "male" ? "男性" : "女性";
+  const voiceLabel = voice ? voice.name : `標準語（${genderLabel}）`;
   showToast(`読み聞かせ中…（${voiceLabel}）`);
 
-  // Chrome 対策: cancel 直後だと発話が落ちることがある
   window.setTimeout(() => speakChunks(chunks), 60);
 }
 
