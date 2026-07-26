@@ -151,6 +151,7 @@ function goTo(index, direction) {
   if (isAnimating) return;
   if (index < 0 || index >= pages.length || index === currentIndex) return;
 
+  stopNarration();
   isAnimating = true;
   const exitClass = direction === "next" ? "is-exit-next" : "is-exit-prev";
   const enterClass = direction === "next" ? "is-enter-next" : "is-enter-prev";
@@ -179,25 +180,155 @@ function prevPage() {
   goTo(currentIndex - 1, "prev");
 }
 
-function playAudioDummy() {
-  audioBtn.classList.add("is-playing");
-  showToast("音声を再生しています…（サンプル）");
+/* --- 音声読み上げ（Web Speech API） --- */
+const PREFERRED_VOICE_NAMES = [
+  "Google 日本語",
+  "Google Japanese",
+  "Microsoft Nanami",
+  "Microsoft Haruka",
+  "Microsoft Ayumi",
+  "Kyoko",
+  "Otoya",
+  "Sayaka",
+  "Hattori"
+];
 
-  // ブラウザ音声が使える環境では読み上げ（なければトーストのみ）
+let cachedJaVoice = null;
+let speakingQueue = [];
+
+function scoreJapaneseVoice(voice) {
+  const name = voice.name || "";
+  const lang = (voice.lang || "").toLowerCase();
+  if (!lang.startsWith("ja")) return -1;
+
+  let score = 10;
+  const preferredIndex = PREFERRED_VOICE_NAMES.findIndex(
+    (n) => name === n || name.includes(n)
+  );
+  if (preferredIndex !== -1) score += 100 - preferredIndex;
+
+  if (/google/i.test(name)) score += 40;
+  if (/nanami|haruka|ayumi|kyoko|otoya|sayaka/i.test(name)) score += 30;
+  if (voice.localService === false) score += 15; // クラウド系は自然になりやすい
+  if (lang === "ja-jp") score += 5;
+  return score;
+}
+
+function pickJapaneseVoice() {
+  if (cachedJaVoice) return cachedJaVoice;
+  if (!("speechSynthesis" in window)) return null;
+
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+
+  const ranked = voices
+    .map((voice) => ({ voice, score: scoreJapaneseVoice(voice) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  cachedJaVoice = ranked.length ? ranked[0].voice : null;
+  return cachedJaVoice;
+}
+
+function warmUpVoices() {
+  if (!("speechSynthesis" in window)) return;
+  const ready = () => {
+    cachedJaVoice = null;
+    pickJapaneseVoice();
+  };
+  ready();
+  window.speechSynthesis.onvoiceschanged = ready;
+}
+
+function prepareNarrationText(page) {
+  const title = page.title.trim();
+  const body = page.text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
+
+  // 句読点・感嘆・疑問のあとで区切り、読み聞かせの「間」を作る
+  const combined = `${title}。${body}`;
+  return combined
+    .replace(/\s+/g, " ")
+    .split(/(?<=[。．！？!?…])\s*/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+}
+
+function stopNarration() {
+  speakingQueue = [];
   if ("speechSynthesis" in window) {
     window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(
-      `${pages[currentIndex].title}。${pages[currentIndex].text.replace(/\n/g, " ")}`
-    );
-    utter.lang = "ja-JP";
-    utter.rate = 0.95;
-    utter.onend = () => audioBtn.classList.remove("is-playing");
-    utter.onerror = () => audioBtn.classList.remove("is-playing");
-    window.speechSynthesis.speak(utter);
-  } else {
-    window.setTimeout(() => audioBtn.classList.remove("is-playing"), 1600);
   }
+  audioBtn.classList.remove("is-playing");
 }
+
+function speakChunks(chunks) {
+  const voice = pickJapaneseVoice();
+  speakingQueue = chunks.slice();
+
+  const speakNext = () => {
+    if (!speakingQueue.length) {
+      audioBtn.classList.remove("is-playing");
+      return;
+    }
+
+    const text = speakingQueue.shift();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "ja-JP";
+    utter.rate = 0.88;
+    utter.pitch = 1.08;
+    utter.volume = 1;
+    if (voice) utter.voice = voice;
+
+    // 文と文のあいだに短い間を入れる
+    utter.onend = () => {
+      window.setTimeout(speakNext, text.endsWith("。") || text.endsWith("．") ? 280 : 180);
+    };
+    utter.onerror = () => {
+      audioBtn.classList.remove("is-playing");
+      speakingQueue = [];
+    };
+
+    window.speechSynthesis.speak(utter);
+  };
+
+  speakNext();
+}
+
+function playAudioDummy() {
+  if (!("speechSynthesis" in window)) {
+    showToast("このブラウザでは音声読み上げに対応していません");
+    return;
+  }
+
+  // 再生中にもう一度押したら停止
+  if (audioBtn.classList.contains("is-playing")) {
+    stopNarration();
+    showToast("読み上げを止めました");
+    return;
+  }
+
+  pickJapaneseVoice();
+  window.speechSynthesis.cancel();
+
+  const chunks = prepareNarrationText(pages[currentIndex]);
+  if (!chunks.length) return;
+
+  audioBtn.classList.add("is-playing");
+  const voice = pickJapaneseVoice();
+  const voiceLabel = voice ? voice.name : "標準の日本語音声";
+  showToast(`読み聞かせ中…（${voiceLabel}）`);
+
+  // Chrome 対策: cancel 直後だと発話が落ちることがある
+  window.setTimeout(() => speakChunks(chunks), 60);
+}
+
+warmUpVoices();
+
 
 /* --- イベント --- */
 prevBtn.addEventListener("click", (e) => {
