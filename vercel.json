@@ -1,13 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "buildCommand": "",
-  "outputDirectory": ".",
-  "cleanUrls": true,
-  "trailingSlash": true,
-  "rewrites": [
-    { "source": "/", "destination": "/index.html" },
-    { "source": "/book", "destination": "/book/" },
-    { "source": "/book/", "destination": "/book/index.html" }
-  ]
+  "framework": "nextjs"
 }

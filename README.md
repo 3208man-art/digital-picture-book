@@ -1,1 +1,16 @@
-# digital-picture-book
+# AIデジタル絵本ラボ
+
+子ども向けの動くデジタル絵本サイトです。
+
+## 開発
+
+```bash
+npm install
+npm run dev
+```
+
+## 作品
+
+- `/` トップ（作品一覧）
+- `/tonton` トントントン！だれの おうちかな？
+- `/hoshi` ほしの たび
